@@ -1,8 +1,9 @@
 "use strict";
 
-// URL del backend. Cuando la app corra detrás de un proxy (nginx, Ingress)
-// se puede cambiar por una ruta relativa, por ejemplo "/api/usuarios".
-const API_URL = "http://localhost:5000/api/usuarios";
+// URL del backend. Se usa una ruta relativa para que nginx derive /api/*
+// al servicio padron-backend dentro de la red de Docker. En desarrollo local
+// sin proxy hay que cambiarla por "http://localhost:5000/api/usuarios".
+const API_URL = "/api/usuarios";
 
 const $ = (selector) => document.querySelector(selector);
 

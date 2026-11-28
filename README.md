@@ -94,14 +94,48 @@ git checkout v0.1.0
 padron/
 ├── backend/
 │   ├── app.py              # API Flask
+│   ├── Dockerfile          # Imagen del backend (gunicorn)
 │   └── requirements.txt    # Dependencias de Python
-└── frontend/
-    ├── index.html          # Página y diálogos
-    ├── styles.css          # Estilos
-    └── app.js              # Lógica y llamadas a la API
+├── frontend/
+│   ├── index.html          # Página y diálogos
+│   ├── styles.css          # Estilos
+│   ├── app.js              # Lógica y llamadas a la API
+│   └── Dockerfile          # Imagen del frontend (nginx)
+├── docker-compose.yml      # Orquestación de los cuatro servicios
+├── nginx.conf              # Reverse proxy hacia frontend y backend
+└── .env.example            # Variables de PostgreSQL
 ```
 
 ## Cómo correrlo
+
+### Con Docker Compose
+
+Requisitos: Docker con el plugin Compose.
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+Abrir <http://localhost:8080> en el navegador.
+
+| Servicio          | Rol                                        | Puerto host |
+|-------------------|--------------------------------------------|-------------|
+| `nginx`           | Reverse proxy, único punto de entrada      | `8080`      |
+| `padron-frontend` | Sirve los archivos estáticos               | —           |
+| `padron-backend`  | API Flask con gunicorn                     | —           |
+| `postgres`        | Base de datos, persistida en `padron-data` | —           |
+
+El backend y PostgreSQL solo son accesibles dentro de la red `padron-net`. Para inspeccionarlos:
+
+```bash
+docker compose exec padron-backend sh
+docker compose exec postgres psql -U padron -d padron
+```
+
+Los datos de PostgreSQL quedan en el volumen `padron-data` y sobreviven a `docker compose down`. Para borrarlos: `docker compose down -v`.
+
+### En local, sin contenedores
 
 Requisitos: Python 3.10 o superior.
 
@@ -120,6 +154,12 @@ python app.py
 ```bash
 cd frontend
 python -m http.server 8080
+```
+
+Como `frontend/app.js` usa la ruta relativa `/api/usuarios` para funcionar detrás de nginx, en local hay que apuntarla al backend antes de probar:
+
+```js
+const API_URL = "http://localhost:5000/api/usuarios";
 ```
 
 Abrir <http://localhost:8080> en el navegador.
@@ -210,11 +250,20 @@ El backend lee estas variables de entorno, todas opcionales:
 | `FLASK_DEBUG`  | `0`         | Poner en `1` para activar el modo debug |
 | `CORS_ORIGINS` | `*`         | Orígenes permitidos, separados por coma |
 
-En el frontend, la URL del backend es la constante `API_URL` al inicio de `frontend/app.js`.
+Docker Compose además lee estas variables desde `.env`:
+
+| Variable            | Por defecto | Descripción                         |
+|---------------------|-------------|-------------------------------------|
+| `POSTGRES_DB`       | `padron`    | Nombre de la base                   |
+| `POSTGRES_USER`     | `padron`    | Usuario de la base                  |
+| `POSTGRES_PASSWORD` | `padron`    | Contraseña (cambiar fuera de local) |
+
+En el frontend, `API_URL` al inicio de `frontend/app.js` es `/api/usuarios`: nginx deriva esa ruta al backend.
 
 ## Decisiones de diseño
 
 - **Acceso a datos aislado.** Toda la lectura y escritura pasa por la clase `UsuariosEnMemoria`. Al incorporar PostgreSQL alcanza con reemplazarla por una implementación que use la base, sin cambiar las rutas.
+- **Un único punto de entrada.** nginx publica el puerto 8080 y deriva `/api` al backend y el resto al frontend; así el navegador usa rutas relativas y no hay CORS entre servicios.
 - **Endpoint `/health`.** Pensado para los health checks de Docker y los probes de Kubernetes.
 - **Configuración por variables de entorno.** Permite usar la misma imagen en distintos entornos.
 - **Frontend sin dependencias.** Se sirve como archivos estáticos, lo que facilita ponerlo detrás de nginx más adelante.
